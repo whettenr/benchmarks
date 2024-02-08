@@ -21,7 +21,7 @@ class EmoIdBrain(sb.Brain):
         batch = batch.to(self.device)
         wavs, wav_lens = batch.sig
 
-        feats = self.modules.weighted_ssl_model(wavs)
+        feats = self.modules.weighted_ssl_model(wavs, wav_lens)
 
         # last dim will be used for AdaptativeAVG pool
         outputs = self.hparams.avg_pool(feats, wav_lens)
@@ -257,6 +257,11 @@ if __name__ == "__main__":
         run_opts=run_opts,
         checkpointer=hparams["checkpointer"],
     )
+
+    if "pretrainer" in hparams.keys():
+        sb.utils.distributed.run_on_main(hparams["pretrainer"].collect_files)
+        hparams["pretrainer"].load_collected()
+
     # The `fit()` method iterates the training loop, calling the methods
     # necessary to update the parameters of the model. Since all objects
     # with changing state are managed by the Checkpointer, training can be
