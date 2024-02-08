@@ -29,7 +29,7 @@ class ASR(sb.Brain):
         wavs, wav_lens = batch.sig
 
         # Forward pass
-        feats = self.modules.weighted_ssl_model(wavs)
+        feats = self.modules.weighted_ssl_model(wavs, wav_lens)
         y = self.modules.enc(feats)
 
         # Compute outputs
@@ -42,7 +42,13 @@ class ASR(sb.Brain):
                 p_ctc, wav_lens, blank_id=self.hparams.blank_index
             )
         elif stage == sb.Stage.TEST:
-            p_tokens = test_searcher(p_ctc, wav_lens)
+            if self.hparams.language_modelling:
+                p_tokens = test_searcher(p_ctc, wav_lens)
+            else:
+                p_tokens = sb.decoders.ctc_greedy_decode(
+                    p_ctc, wav_lens, blank_id=self.hparams.blank_index
+                )
+
 
         return p_ctc, wav_lens, p_tokens
 
@@ -61,9 +67,15 @@ class ASR(sb.Brain):
                 for utt_seq in predicted_tokens
             ]
         elif stage == sb.Stage.TEST:
-            predicted_words = [
-                hyp[0].text.split(" ") for hyp in predicted_tokens
-            ]
+            if self.hparams.language_modelling:
+                predicted_words = [
+                    hyp[0].text.split(" ") for hyp in predicted_tokens
+                ]
+            else:
+                predicted_words = [
+                    "".join(self.tokenizer.decode_ndim(utt_seq)).split(" ")
+                    for utt_seq in predicted_tokens
+                ]
 
         if stage != sb.Stage.TRAIN:
             target_words = [wrd.split(" ") for wrd in batch.wrd]
@@ -290,11 +302,21 @@ if __name__ == "__main__":
     ind2lab = label_encoder.ind2lab
     vocab_list = [ind2lab[x] for x in range(len(ind2lab))]
 
-    from speechbrain.decoders.ctc import CTCBeamSearcher
+    if "language_modelling" in hparams:
+        if hparams["language_modelling"]:
+            
+            from speechbrain.decoders.ctc import CTCBeamSearcher
 
-    test_searcher = CTCBeamSearcher(
-        **hparams["test_beam_search"], vocab_list=vocab_list,
-    )
+            test_searcher = CTCBeamSearcher(
+                **hparams["test_beam_search"], vocab_list=vocab_list,
+            )
+    else:
+        hparams["language_modelling"] = False
+
+    # Loading the SSL model
+    if "pretrainer" in hparams.keys():
+        run_on_main(hparams["pretrainer"].collect_files)
+        hparams["pretrainer"].load_collected()
 
     # Training
     asr_brain.fit(
