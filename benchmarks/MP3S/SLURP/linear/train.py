@@ -23,7 +23,7 @@ class IntentIdBrain(sb.Brain):
         """
         batch = batch.to(self.device)
         wavs, lens = batch.sig
-        feats = self.modules.weighted_ssl_model(wavs)
+        feats = self.modules.weighted_ssl_model(wavs, lens)
         # last dim will be used for AdaptativeAVG pool
         outputs = self.hparams.avg_pool(feats, lens)
         outputs = outputs.view(outputs.shape[0], -1)
@@ -282,6 +282,11 @@ if __name__ == "__main__":
         run_opts=run_opts,
         checkpointer=hparams["checkpointer"],
     )
+
+    # Load pretrained model
+    if "pretrainer" in hparams.keys():
+        run_on_main(hparams["pretrainer"].collect_files)
+        hparams["pretrainer"].load_collected()
 
     # The `fit()` method iterates the training loop, calling the methods
     # necessary to update the parameters of the model. Since all objects

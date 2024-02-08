@@ -40,7 +40,7 @@ def compute_embedding(wavs, wav_lens):
             wav_lens.to(speaker_brain.device),
         )
 
-        feats = speaker_brain.modules.weighted_ssl_model(wavs)
+        feats = speaker_brain.modules.weighted_ssl_model(wavs, wav_lens)
         embeddings = speaker_brain.modules.embedding_model(feats, wav_lens)
     return embeddings.squeeze(1)
 
@@ -64,6 +64,8 @@ def compute_embedding_loop(data_loader):
             if not found:
                 continue
             wavs, lens = wavs.to(hparams["device"]), lens.to(hparams["device"])
+            wavs = wavs[:, :713601]
+            lens = torch.clamp(lens, max=713601)
             emb = compute_embedding(wavs, lens).unsqueeze(1)
             for i, seg_id in enumerate(seg_ids):
                 embedding_dict[seg_id] = emb[i].detach().clone()
@@ -220,7 +222,7 @@ class SpeakerBrain(sb.core.Brain):
         """
         batch = batch.to(self.device)
         wavs, lens = batch.sig
-        feats = self.modules.weighted_ssl_model(wavs)
+        feats = self.modules.weighted_ssl_model(wavs, lens)
         # Embeddings + speaker classifier
         embeddings = self.modules.embedding_model(feats)
         outputs = self.modules.classifier(embeddings)
@@ -383,24 +385,25 @@ if __name__ == "__main__":
     download_file(hparams["verification_file"], veri_file_path)
 
     # Dataset prep (parsing VoxCeleb and annotation into csv files)
-    from voxceleb_prepare import prepare_voxceleb  # noqa
+    if not hparams["skip_prep"]:
+        from voxceleb_prepare import prepare_voxceleb  # noqa
 
-    prepare_voxceleb(
-        data_folder=hparams["data_folder"],
-        save_folder=hparams["save_folder"],
-        verification_pairs_file=veri_file_path,
-        splits=["train", "dev", "test"],
-        split_ratio=[90, 10],
-        seg_dur=hparams["sentence_len"],
-        source=hparams["voxceleb_source"]
-        if "voxceleb_source" in hparams
-        else None,
-    )
+        prepare_voxceleb(
+            data_folder=hparams["data_folder"],
+            save_folder=hparams["save_folder"],
+            verification_pairs_file=veri_file_path,
+            splits=["train", "dev", "test"],
+            split_ratio=[90, 10],
+            seg_dur=hparams["sentence_len"],
+            source=hparams["voxceleb_source"]
+            if "voxceleb_source" in hparams
+            else None,
+        )
 
-    # Loading wav2vec2.0
-    if not hparams["pretrain"]:
-        run_on_main(hparams["pretrainer"].collect_files)
-        hparams["pretrainer"].load_collected()
+    # # Loading wav2vec2.0
+    # if not hparams["pretrain"]:
+    #     run_on_main(hparams["pretrainer"].collect_files)
+    #     hparams["pretrainer"].load_collected()
 
     # Dataset IO prep: creating Dataset objects and proper encodings for phones
     train_data, valid_data, label_encoder = dataio_prep(hparams)
@@ -419,6 +422,11 @@ if __name__ == "__main__":
         run_opts=run_opts,
         checkpointer=hparams["checkpointer"],
     )
+
+    # Load pretrained model
+    if "pretrainer" in hparams.keys():
+        run_on_main(hparams["pretrainer"].collect_files)
+        hparams["pretrainer"].load_collected()
 
     # Training
     speaker_brain.fit(
