@@ -31,7 +31,7 @@ class ASR(sb.Brain):
         wavs, wav_lens = batch.sig
 
         # Forward pass
-        feats = self.modules.weighted_ssl_model(wavs)
+        feats = self.modules.weighted_ssl_model(wavs, wav_lens)
         y = self.modules.enc(feats)
         y = y[0]  # As it is an RNN output
         # Compute outputs
@@ -291,6 +291,11 @@ if __name__ == "__main__":
     test_searcher = CTCBeamSearcher(
         **hparams["test_beam_search"], vocab_list=vocab_list,
     )
+
+    # Loading the SSL model
+    if "pretrainer" in hparams.keys():
+        run_on_main(hparams["pretrainer"].collect_files)
+        hparams["pretrainer"].load_collected()
 
     # Training
     asr_brain.fit(
