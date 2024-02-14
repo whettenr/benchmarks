@@ -24,10 +24,10 @@ train_splits: ["train_real"]
 # csv_train: !ref <output_folder>/train-type=direct.csv
 # csv_valid: !ref <output_folder>/devel-type=direct.csv
 # csv_test: !ref <output_folder>/test-type=direct.csv
-
-csv_train: /users/rwhetten/benchmarks/benchmarks/MP3S/SLURP/results/csv/train-type=direct.csv
-csv_valid: /users/rwhetten/benchmarks/benchmarks/MP3S/SLURP/results/csv/devel-type=direct.csv
-csv_test: /users/rwhetten/benchmarks/benchmarks/MP3S/SLURP/results/csv/test-type=direct.csv
+csv_location: /users/rwhetten/benchmarks/benchmarks/MP3S/SLURP/results/csv
+csv_train: !ref <csv_location>/train-type=direct.csv
+csv_valid: !ref <csv_location>/devel-type=direct.csv
+csv_test: !ref <csv_location>/test-type=direct.csv
 
 skip_prep: True
 freeze_encoder: True
