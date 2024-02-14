@@ -47,7 +47,7 @@ lr_weights: 0.01
 sorting: ascending
 precision: fp32
 sample_rate: 16000
-language_modelling: False
+
 ngram_lm_path: !ref <csv_location>/4-gram.arpa.gz
 
 # With data_parallel batch_size is split into N jobs
