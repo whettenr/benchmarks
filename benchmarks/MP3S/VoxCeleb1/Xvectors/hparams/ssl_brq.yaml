@@ -17,16 +17,16 @@ train_log: !ref <output_folder>/train_log.txt
 data_folder: !PLACEHOLDER  # e.g. /path/to/Voxceleb
 # train_annotation: !ref <output_folder>/train.csv
 # valid_annotation: !ref <output_folder>/dev.csv
-train_annotation: /users/rwhetten/best-rq-test/results/VoxCeleb1/csv/train.csv
-valid_annotation: /users/rwhetten/best-rq-test/results/VoxCeleb1/csv/dev.csv
+csv_location: /users/rwhetten/best-rq-test/results/VoxCeleb1/csv
+train_annotation: !ref <csv_location>/train.csv
+valid_annotation: !ref <csv_location>/dev.csv
 num_layers_ssl: 13
 ssl_hub: !PLACEHOLDER
 
 # Use the following links for the official voxceleb splits:
 # Therefore you cannot use any files in VoxCeleb1 for training
 # if you are using these lists for testing.
-verification_file: /users/rwhetten/benchmarks/benchmarks/MP3S/VoxCeleb1/veri_test2.txt #path/to/veri_test2.txt
-
+verification_file: !ref <csv_location>/veri_test2.txt #path/to/veri_test2.txt
 
 skip_prep: True
 ckpt_interval_minutes: 15 # save checkpoint every N min
