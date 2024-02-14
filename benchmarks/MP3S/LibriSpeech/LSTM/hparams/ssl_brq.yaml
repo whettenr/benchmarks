@@ -28,11 +28,11 @@ test_splits: ["test-clean", "test-other"]
 skip_prep: True
 ckpt_interval_minutes: 25 # save checkpoint every N min
 csv_location: !PLACEHOLDER
-train_csv: !ref <csv_location>/train.csv
-valid_csv: !ref <csv_location>/dev-clean.csv
+train_csv: !ref <csv_location>/csv/LibriSpeech/train.csv
+valid_csv: !ref <csv_location>/csv/LibriSpeech/dev-clean.csv
 test_csv:
-   - !ref <csv_location>/test-clean.csv
-   - !ref <csv_location>/test-other.csv
+   - !ref <csv_location>/csv/LibriSpeech/test-clean.csv
+   - !ref <csv_location>/csv/LibriSpeech/test-other.csv
 
 # num_layers_ssl: 25  #Number of layers in the SSL model (should be 25 for large )
 num_layers_ssl: 13  #Number of layers in the SSL model (should be 25 for large )
@@ -48,7 +48,7 @@ sorting: ascending
 precision: fp32
 sample_rate: 16000
 language_modelling: False
-ngram_lm_path: /users/rwhetten/best-rq-test/benchmark/4-gram.arpa.gz
+ngram_lm_path: !ref <csv_location>/4-gram.arpa.gz
 
 # With data_parallel batch_size is split into N jobs
 # With DDP batch_size is multiplied by N jobs
