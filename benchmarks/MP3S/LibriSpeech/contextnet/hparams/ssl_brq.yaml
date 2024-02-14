@@ -25,11 +25,12 @@ dev_splits: ["dev-clean"]
 test_splits: ["test-clean", "test-other"]
 skip_prep: True
 ckpt_interval_minutes: 25 # save checkpoint every N min
-train_csv: /users/rwhetten/best-rq-test/results/LibriSpeech/csv/train.csv
-valid_csv: /users/rwhetten/best-rq-test/results/LibriSpeech/csv/dev-clean.csv
+csv_location: !PLACEHOLDER
+train_csv: !ref <csv_location>/train.csv
+valid_csv: !ref <csv_location>/dev-clean.csv
 test_csv:
-   - !ref /users/rwhetten/best-rq-test/results/LibriSpeech/csv/test-clean.csv
-   - !ref /users/rwhetten/best-rq-test/results/LibriSpeech/csv/test-other.csv
+   - !ref <csv_location>/test-clean.csv
+   - !ref <csv_location>/test-other.csv
 
 num_layers_ssl: 13  #Number of layers in the SSL model (should be 25 for large )
 encoder_dim: 512

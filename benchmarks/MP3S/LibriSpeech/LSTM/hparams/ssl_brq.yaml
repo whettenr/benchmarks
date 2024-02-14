@@ -27,11 +27,12 @@ test_splits: ["test-clean", "test-other"]
 
 skip_prep: True
 ckpt_interval_minutes: 25 # save checkpoint every N min
-train_csv: /users/rwhetten/best-rq-test/results/LibriSpeech/csv/train.csv
-valid_csv: /users/rwhetten/best-rq-test/results/LibriSpeech/csv/dev-clean.csv
+csv_location: !PLACEHOLDER
+train_csv: !ref <csv_location>/train.csv
+valid_csv: !ref <csv_location>/dev-clean.csv
 test_csv:
-   - !ref /users/rwhetten/best-rq-test/results/LibriSpeech/csv/test-clean.csv
-   - !ref /users/rwhetten/best-rq-test/results/LibriSpeech/csv/test-other.csv
+   - !ref <csv_location>/test-clean.csv
+   - !ref <csv_location>/test-other.csv
 
 # num_layers_ssl: 25  #Number of layers in the SSL model (should be 25 for large )
 num_layers_ssl: 13  #Number of layers in the SSL model (should be 25 for large )
@@ -233,16 +234,20 @@ pretrainer: !new:speechbrain.utils.parameter_transfer.Pretrainer
 blank_index: 0
 unk_index: 1
 
+beam_size: 143
+topk: 1
+alpha: 0.8  # Default by KenLM
+beta: 1.2
 test_beam_search:
-   beam_size: 143
-   topk: 1
+   beam_size: !ref <beam_size>
+   topk: !ref <topk>
    blank_index: !ref <blank_index>
    space_token: ' ' # make sure this is the same as the one used in the tokenizer
    beam_prune_logp: -12.0
    token_prune_min_logp: -1.2
    prune_history: True
-   alpha: 0.8
-   beta: 1.2
+   alpha: !ref <alpha> # 0.8
+   beta: !ref <beta> # 1.2
    # can be downloaded from here https://www.openslr.org/11/ or trained with kenLM
    # It can either be a .bin or .arpa ; note: .arpa is much slower at loading
    # If you don't want to use an LM, comment it out or set it to null
