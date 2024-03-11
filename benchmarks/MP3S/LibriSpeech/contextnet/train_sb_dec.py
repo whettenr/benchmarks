@@ -1,6 +1,5 @@
 #!/usr/bin/env/python3
 """Recipe for training an SSL-based ctc ASR system with librispeech.
-
 Decoding is performed with greedy decoding at validation time.
 At test time, beamsearch is used with an optional external language model.
 
@@ -32,38 +31,34 @@ class ASR(sb.Brain):
         # Forward pass
         feats = self.modules.weighted_ssl_model(wavs, wav_lens)
         y = self.modules.enc(feats)
-        y = y[0]  # As it is an RNN output
+
         # Compute outputs
         p_tokens = None
         logits = self.modules.ctc_lin(y)
         p_ctc = self.hparams.log_softmax(logits)
 
-        if stage != sb.Stage.TRAIN:
+        if stage == sb.Stage.VALID:
             p_tokens = sb.decoders.ctc_greedy_decode(
                 p_ctc, wav_lens, blank_id=self.hparams.blank_index
             )
-        # if stage == sb.Stage.VALID:
-        #     p_tokens = sb.decoders.ctc_greedy_decode(
-        #         p_ctc, wav_lens, blank_id=self.hparams.blank_index
-        #     )
-        # elif stage == sb.Stage.TEST:
-        #     if self.hparams.language_modelling:
-        #         p_tokens = test_searcher(p_ctc, wav_lens)
-        #     else:
-        #         p_tokens = sb.decoders.ctc_greedy_decode(
-        #             p_ctc, wav_lens, blank_id=self.hparams.blank_index
-        #         )
+        elif stage == sb.Stage.TEST:
+            if self.hparams.language_modelling:
+                p_tokens = test_searcher(p_ctc, wav_lens)
+            else:
+                p_tokens = sb.decoders.ctc_greedy_decode(
+                    p_ctc, wav_lens, blank_id=self.hparams.blank_index
+                )
+
 
         return p_ctc, wav_lens, p_tokens
-    
+
     def compute_objectives(self, predictions, batch, stage):
         """Computes the loss (CTC+NLL) given predictions and targets."""
 
         p_ctc, wav_lens, predicted_tokens = predictions
         ids = batch.id
         tokens, tokens_lens = batch.tokens
-        loss_ctc = self.hparams.ctc_cost(p_ctc, tokens, wav_lens, tokens_lens)
-        loss = loss_ctc
+        loss = self.hparams.ctc_cost(p_ctc, tokens, wav_lens, tokens_lens)
 
         if stage == sb.Stage.VALID:
             # Decode token terms to words
@@ -71,59 +66,23 @@ class ASR(sb.Brain):
                 "".join(self.tokenizer.decode_ndim(utt_seq)).split(" ")
                 for utt_seq in predicted_tokens
             ]
-            target_words = [wrd.split(" ") for wrd in batch.wrd]
-            self.wer_metric.append(ids, predicted_words, target_words)
-            self.cer_metric.append(ids, predicted_words, target_words)
-
         elif stage == sb.Stage.TEST:
             if self.hparams.language_modelling:
-                predicted_words = []
-                for logs in p_ctc:
-                    text = decoder.decode(logs.detach().cpu().numpy())
-                    predicted_words.append(text.split(" "))
+                predicted_words = [
+                    hyp[0].text.split(" ") for hyp in predicted_tokens
+                ]
             else:
                 predicted_words = [
                     "".join(self.tokenizer.decode_ndim(utt_seq)).split(" ")
                     for utt_seq in predicted_tokens
                 ]
 
+        if stage != sb.Stage.TRAIN:
             target_words = [wrd.split(" ") for wrd in batch.wrd]
             self.wer_metric.append(ids, predicted_words, target_words)
             self.cer_metric.append(ids, predicted_words, target_words)
 
         return loss
-
-    # def compute_objectives(self, predictions, batch, stage):
-    #     """Computes the loss (CTC+NLL) given predictions and targets."""
-
-    #     p_ctc, wav_lens, predicted_tokens = predictions
-    #     ids = batch.id
-    #     tokens, tokens_lens = batch.tokens
-    #     loss = self.hparams.ctc_cost(p_ctc, tokens, wav_lens, tokens_lens)
-
-    #     if stage == sb.Stage.VALID:
-    #         # Decode token terms to words
-    #         predicted_words = [
-    #             "".join(self.tokenizer.decode_ndim(utt_seq)).split(" ")
-    #             for utt_seq in predicted_tokens
-    #         ]
-    #     elif stage == sb.Stage.TEST:
-    #         if self.hparams.language_modelling:
-    #             predicted_words = [
-    #                 hyp[0].text.split(" ") for hyp in predicted_tokens
-    #             ]
-    #         else:
-    #             predicted_words = [
-    #                 "".join(self.tokenizer.decode_ndim(utt_seq)).split(" ")
-    #                 for utt_seq in predicted_tokens
-    #             ]
-
-    #     if stage != sb.Stage.TRAIN:
-    #         target_words = [wrd.split(" ") for wrd in batch.wrd]
-    #         self.wer_metric.append(ids, predicted_words, target_words)
-    #         self.cer_metric.append(ids, predicted_words, target_words)
-
-    #     return loss
 
     def on_stage_start(self, stage, epoch):
         """Gets called at the beginning of each epoch"""
@@ -337,44 +296,22 @@ if __name__ == "__main__":
         checkpointer=hparams["checkpointer"],
     )
 
-    # Loading the SSL model
     # We dynamicaly add the tokenizer to our brain class.
     asr_brain.tokenizer = label_encoder
 
+    ind2lab = label_encoder.ind2lab
+    vocab_list = [ind2lab[x] for x in range(len(ind2lab))]
+
     if "language_modelling" in hparams:
-
         if hparams["language_modelling"]:
-            from pyctcdecode import build_ctcdecoder
+            
+            from speechbrain.decoders.ctc import CTCBeamSearcher
 
-            ind2lab = label_encoder.ind2lab
-            labels = [ind2lab[x] for x in range(len(ind2lab))]
-            labels = [""] + labels[
-                1:
-            ]  # Replace the <blank> token with a blank character, needed for PyCTCdecode
-            decoder = build_ctcdecoder(
-                labels,
-                kenlm_model_path=hparams[
-                    "ngram_lm_path"
-                ],  # either .arpa or .bin file
-                alpha=0.5,  # tuned on a val set
-                beta=1.0,  # tuned on a val set
+            test_searcher = CTCBeamSearcher(
+                **hparams["test_beam_search"], vocab_list=vocab_list,
             )
     else:
         hparams["language_modelling"] = False
-
-    # ind2lab = label_encoder.ind2lab
-    # vocab_list = [ind2lab[x] for x in range(len(ind2lab))]
-
-    # if "language_modelling" in hparams:
-    #     if hparams["language_modelling"]:
-            
-    #         from speechbrain.decoders.ctc import CTCBeamSearcher
-
-    #         test_searcher = CTCBeamSearcher(
-    #             **hparams["test_beam_search"], vocab_list=vocab_list,
-    #         )
-    # else:
-    #     hparams["language_modelling"] = False
 
     # Loading the SSL model
     if "pretrainer" in hparams.keys():

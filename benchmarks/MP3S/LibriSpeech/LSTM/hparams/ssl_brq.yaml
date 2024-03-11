@@ -234,20 +234,16 @@ pretrainer: !new:speechbrain.utils.parameter_transfer.Pretrainer
 blank_index: 0
 unk_index: 1
 
-beam_size: 143
-topk: 1
-alpha: 0.8  # Default by KenLM
-beta: 1.2
 test_beam_search:
-   beam_size: !ref <beam_size>
-   topk: !ref <topk>
+   beam_size: 100
+   topk: 1
    blank_index: !ref <blank_index>
    space_token: ' ' # make sure this is the same as the one used in the tokenizer
-   beam_prune_logp: -12.0
-   token_prune_min_logp: -1.2
-   prune_history: True
-   alpha: !ref <alpha> # 0.8
-   beta: !ref <beta> # 1.2
+   beam_prune_logp: -10.0
+   token_prune_min_logp: -5
+   prune_history: False
+   alpha: 0.5
+   beta: 1.0
    # can be downloaded from here https://www.openslr.org/11/ or trained with kenLM
    # It can either be a .bin or .arpa ; note: .arpa is much slower at loading
    # If you don't want to use an LM, comment it out or set it to null
