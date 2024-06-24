@@ -1,0 +1,238 @@
+# ########################################
+# Recipe for training an emotion recognition system from speech data
+# only using IEMOCAP and an SSL feature extractor
+# The system classifies 4 emotions ( anger, happiness, sadness, neutrality)
+# with an ECAPA-TDNN model.
+# Authors
+# * Salah Zaiem 2023
+# * Youcef Kemiche 2023
+# * Adel Moumen 2024
+# ########################################
+
+# Seed needs to be set at top of yaml, before objects with parameters are made
+seed: 1986
+__set_seed: !apply:torch.manual_seed [!ref <seed>]
+
+# Dataset will be downloaded to the `data_original`
+data_folder: !PLACEHOLDER # e.g., /path/to/IEMOCAP_full_release
+output_folder: !ref results/IEMOCAP/IEMOCAP_full_release/<seed>
+save_folder: !ref <output_folder>/save
+train_log: !ref <output_folder>/train_log.txt
+
+# URL for the ssl encoder  model, you can change to benchmark diffrenet models
+# Important: we use ssl encoder base and not the fine-tuned one with ASR task
+# This allow you to have ~4% improvment
+
+ssl_hub: facebook/wav2vec2-base
+ssl_folder: !ref <output_folder>/ssl_checkpoints
+num_layers_ssl: 13  #Number of layers in the SSL model (should be 25 for large)
+encoder_dim: 512
+
+# different speakers for train, valid and test sets
+different_speakers: True
+# which speaker is used for test set, value from 1 to 10
+# Change this value and run this value 10 times and take the mean of it
+test_spk_id: 1
+
+# Path where data manifest files will be stored
+train_annotation: !ref <output_folder>/train.json
+valid_annotation: !ref <output_folder>/valid.json
+test_annotation: !ref <output_folder>/test.json
+
+# The train logger writes training statistics to a file, as well as stdout.
+train_logger: !new:speechbrain.utils.train_logger.FileTrainLogger
+    save_file: !ref <train_log>
+
+ckpt_interval_minutes: 15 # save checkpoint every N min
+
+# Training parameters
+precision: fp32
+number_of_epochs: 30
+batch_size: 2
+test_batch_size: 1
+
+lr: 0.0002
+lr_weights: 0.01
+
+# Number of emotions
+out_n_neurons: 4 # (anger, happiness, sadness, neutral)
+
+# Dataloader options
+train_dataloader_opts:
+    batch_size: !ref <batch_size>
+    shuffle: True
+    num_workers: 2  # 2 on linux but 0 works on windows
+    drop_last: False
+
+valid_dataloader_opts:
+    batch_size: !ref <batch_size>
+
+test_dataloader_opts:
+    batch_size: !ref <test_batch_size>
+
+freeze_encoder: True
+sample_rate: 16000
+
+####################### Pre-Trained Model parameters ###########################
+# Transformer
+d_model: !ref <encoder_dim>
+nhead: 8 # table 1 https://arxiv.org/pdf/2010.10504.pdf
+num_encoder_layers: 12 # section 4.1.1
+num_decoder_layers: 0
+d_ffn: 2048
+transformer_dropout: 0.1
+transformer_activation: !name:torch.nn.GELU
+transformer_output_neurons: 5000
+encoder_module: conformer
+
+attention_type: SummaryMixing # SummaryMixing, regularMHA or RelPosMHAXL
+mode: SummaryMixing # SummaryMixing or SummaryMixing-lite
+csgu_linear_units: 3072
+csgu_kernel_size: 31
+local_proj_hid_dim: [512]
+local_proj_out_dim: 512
+summary_hid_dim: [512]
+summary_out_dim: 512
+
+# Feature parameters
+n_fft: 400
+n_mels: 80
+
+# quantizer parameters not using though for finetunning
+p_input: 320
+cb_dim: 16
+cb_vocab: 8192
+
+############################## Pre-Trained Model ################################
+
+compute_features: !new:speechbrain.lobes.features.Fbank
+    sample_rate: !ref <sample_rate>
+    n_fft: !ref <n_fft>
+    n_mels: !ref <n_mels>
+
+normalize: !new:speechbrain.processing.features.InputNormalization
+    norm_type: global
+    update_until_epoch: 4
+
+CNN: !new:speechbrain.lobes.models.convolution.ConvolutionFrontEnd
+    input_shape: (8, 10, 80)
+    num_blocks: 2
+    num_layers_per_block: 1
+    out_channels: (128, 32)
+    kernel_sizes: (3, 3)
+    strides: (2, 2)
+    residuals: (False, False)
+
+Transformer: !new:speechbrain.lobes.models.transformer.TransformerASR.TransformerASR # yamllint disable-line rule:line-length
+    input_size: 640
+    tgt_vocab: !ref <transformer_output_neurons>
+    d_model: !ref <d_model>
+    nhead: !ref <nhead>
+    num_encoder_layers: !ref <num_encoder_layers>
+    num_decoder_layers: !ref <num_decoder_layers>
+    d_ffn: !ref <d_ffn>
+    dropout: !ref <transformer_dropout>
+    activation: !ref <transformer_activation>
+    encoder_module: !ref <encoder_module>
+
+    attention_type: !ref <attention_type>
+    csgu_linear_units: !ref <csgu_linear_units>
+    kernel_size: !ref <csgu_kernel_size>
+    local_proj_hid_dim: !ref <local_proj_hid_dim>
+    local_proj_out_dim: !ref <local_proj_out_dim>
+    summary_hid_dim: !ref <summary_hid_dim>
+    summary_out_dim: !ref <summary_out_dim>
+    mode: !ref <mode>
+
+    normalize_before: True
+    causal: False
+    output_hidden_states: True
+
+
+wrapper: !new:speechbrain.lobes.models.transformer.TransformerASR.WeightedEncoderWrapper
+   transformer: !ref <Transformer>
+   num_layers: !ref <num_layers_ssl>
+   freeze: !ref <freeze_encoder>
+
+Quantizer: !new:speechbrain.nnet.quantisers.RandomProjectionQuantizer
+    # projection
+    input_dim: !ref <p_input>
+    # codebook
+    cb_dim: !ref <cb_dim>    
+    cb_vocab: !ref <cb_vocab>
+
+linear: !new:speechbrain.nnet.linear.Linear
+    input_size: !ref <d_model>
+    n_neurons: !ref <cb_vocab>
+
+pt_model: !new:torch.nn.ModuleList
+    - [!ref <CNN>, !ref <wrapper>, !ref <Quantizer>, !ref <linear>]
+
+weighted_ssl_model: !new:speechbrain.lobes.models.transformer.TransformerASR.ComputeFeaturesWrapper
+   compute_features: !ref <compute_features>
+   normalize: !ref <normalize>
+   model: !ref <pt_model>
+
+#####################################################################
+
+avg_pool: !new:speechbrain.nnet.pooling.StatisticsPooling
+    return_std: False
+
+output_mlp: !new:speechbrain.nnet.linear.Linear
+    input_size: !ref <encoder_dim>
+    n_neurons: !ref <out_n_neurons>
+    bias: False
+
+epoch_counter: !new:speechbrain.utils.epoch_loop.EpochCounter
+    limit: !ref <number_of_epochs>
+
+modules:
+    output_mlp: !ref <output_mlp>
+    weighted_ssl_model: !ref <weighted_ssl_model>
+
+model: !new:torch.nn.ModuleList
+    - [!ref <output_mlp>]
+
+log_softmax: !new:speechbrain.nnet.activations.Softmax
+    apply_log: True
+
+compute_cost: !name:speechbrain.nnet.losses.nll_loss
+
+error_stats: !name:speechbrain.utils.metric_stats.MetricStats
+    metric: !name:speechbrain.nnet.losses.classification_error
+        reduction: batch
+
+model_opt_class: !name:torch.optim.Adam
+    lr: !ref <lr>
+
+weights_opt_class: !name:torch.optim.Adam
+    lr: !ref <lr_weights>
+
+lr_annealing_model: !new:speechbrain.nnet.schedulers.NewBobScheduler
+    initial_value: !ref <lr>
+    improvement_threshold: 0.0025
+    annealing_factor: 0.9
+    patient: 0
+
+lr_annealing_weights: !new:speechbrain.nnet.schedulers.NewBobScheduler
+    initial_value: !ref <lr_weights>
+    improvement_threshold: 0.0025
+    annealing_factor: 0.9
+
+pretrainer: !new:speechbrain.utils.parameter_transfer.Pretrainer
+   collect_in: !ref <save_folder>
+   loadables:
+      pt_model: !ref <pt_model>
+      normalize: !ref <normalize>
+   paths:
+      pt_model: !ref <ssl_hub>/model.ckpt
+      normalize: !ref <ssl_hub>/normalizer.ckpt
+
+checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
+    checkpoints_dir: !ref <save_folder>
+    recoverables:
+        model: !ref <model>
+        ssl_model: !ref <weighted_ssl_model>
+        scheduler_model: !ref <lr_annealing_model>
+        scheduler_encoder: !ref <lr_annealing_weights>
+        counter: !ref <epoch_counter>
