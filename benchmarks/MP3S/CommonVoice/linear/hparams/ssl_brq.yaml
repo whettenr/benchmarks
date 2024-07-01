@@ -19,8 +19,9 @@ test_wer_file: !ref <output_folder>/wer_test.txt
 save_folder: !ref <output_folder>/save
 train_log: !ref <output_folder>/train_log.txt
 
+
 # Data files
-data_folder: !PLACEHOLDER # e.g, /local/cv-corpus-11.0-2022-09-21/<language>
+data_folder: !PLACEHOLDER  # e.g, /local/cv-corpus-11.0-2022-09-21/<language>
 train_tsv_file: !ref <data_folder>/train.tsv  # Standard CommonVoice .tsv files
 dev_tsv_file: !ref <data_folder>/dev.tsv  # Standard CommonVoice .tsv files
 test_tsv_file: !ref <data_folder>/test.tsv  # Standard CommonVoice .tsv files
@@ -32,9 +33,10 @@ skip_prep: False # Skip data preparation
 
 avoid_if_longer_than: 10.0
 
-ssl_hub: facebook/wav2vec2-base
-ssl_folder: !ref <output_folder>/ssl_checkpoints
-encoder_dim: 768
+num_layers_ssl: 13  #Number of layers in the SSL model (should be 25 for large )
+encoder_dim: 512
+ssl_hub: !PLACEHOLDER
+
 
 # Training parameters
 number_of_epochs: 20
@@ -70,7 +72,7 @@ valid_dataloader_opts:
 # Model parameters
 activation: !name:torch.nn.Sigmoid
 dnn_layers: 1
-dnn_neurons: 768
+dnn_neurons: 1024
 freeze_encoder: True
 
 # Outputs
@@ -100,19 +102,99 @@ test_beam_search:
 epoch_counter: !new:speechbrain.utils.epoch_loop.EpochCounter
    limit: !ref <number_of_epochs>
 
-weighted_ssl_model: !new:speechbrain.lobes.models.huggingface_transformers.WeightedSSLModel # yamllint disable-line rule:line-length
-   hub: !ref <ssl_hub>
-   save_path: !ref <ssl_folder>
+####################### Pre-Trained Model parameters ###########################
+# Transformer
+d_model: !ref <encoder_dim>
+nhead: 8 # table 1 https://arxiv.org/pdf/2010.10504.pdf
+num_encoder_layers: 12 # section 4.1.1
+num_decoder_layers: 0
+d_ffn: 2048
+transformer_dropout: 0.1
+transformer_activation: !name:torch.nn.GELU
+transformer_output_neurons: 5000
+attention_type: RelPosMHAXL
+encoder_module: conformer
 
-enc: !new:speechbrain.nnet.RNN.LSTM
-   input_shape: [Null, Null, !ref <encoder_dim>]
-   num_layers: 2
-   bidirectional: True
-   dropout: 0.2
-   hidden_size: 1024
+# Feature parameters
+n_fft: 400
+n_mels: 80
+
+# quantizer parameters not using though for finetunning
+p_input: 320
+cb_dim: 16
+cb_vocab: 8192
+
+############################## Pre-Trained Model ################################
+
+compute_features: !new:speechbrain.lobes.features.Fbank
+    sample_rate: !ref <sample_rate>
+    n_fft: !ref <n_fft>
+    n_mels: !ref <n_mels>
+
+normalize: !new:speechbrain.processing.features.InputNormalization
+    norm_type: global
+    update_until_epoch: 4
+
+CNN: !new:speechbrain.lobes.models.convolution.ConvolutionFrontEnd
+    input_shape: (8, 10, 80)
+    num_blocks: 2
+    num_layers_per_block: 1
+    out_channels: (128, 32)
+    kernel_sizes: (3, 3)
+    strides: (2, 2)
+    residuals: (False, False)
+
+Transformer: !new:speechbrain.lobes.models.transformer.TransformerASR.TransformerASR # yamllint disable-line rule:line-length
+    input_size: 640
+    tgt_vocab: !ref <transformer_output_neurons>
+    d_model: !ref <d_model>
+    nhead: !ref <nhead>
+    num_encoder_layers: !ref <num_encoder_layers>
+    num_decoder_layers: !ref <num_decoder_layers>
+    d_ffn: !ref <d_ffn>
+    dropout: !ref <transformer_dropout>
+    activation: !ref <transformer_activation>
+    encoder_module: !ref <encoder_module>
+    attention_type: !ref <attention_type>
+    normalize_before: True
+    causal: False
+    output_hidden_states: True
+
+wrapper: !new:speechbrain.lobes.models.transformer.TransformerASR.WeightedEncoderWrapper
+   transformer: !ref <Transformer>
+   num_layers: !ref <num_layers_ssl>
+   freeze: !ref <freeze_encoder>
+
+Quantizer: !new:speechbrain.nnet.quantisers.RandomProjectionQuantizer
+    # projection
+    input_dim: !ref <p_input>
+    # codebook
+    cb_dim: !ref <cb_dim>    
+    cb_vocab: !ref <cb_vocab>
+
+linear: !new:speechbrain.nnet.linear.Linear
+    input_size: !ref <d_model>
+    n_neurons: !ref <cb_vocab>
+
+pt_model: !new:torch.nn.ModuleList
+    - [!ref <CNN>, !ref <wrapper>, !ref <Quantizer>, !ref <linear>]
+
+weighted_ssl_model: !new:speechbrain.lobes.models.transformer.TransformerASR.ComputeFeaturesWrapper
+   compute_features: !ref <compute_features>
+   normalize: !ref <normalize>
+   model: !ref <pt_model>
+
+#####################################################################
+
+enc: !new:speechbrain.lobes.models.VanillaNN.VanillaNN
+   input_shape: [null, null, !ref <encoder_dim>]
+   activation: !ref <activation>
+   dnn_blocks: !ref <dnn_layers>
+   dnn_neurons: !ref <dnn_neurons>
+
 
 ctc_lin: !new:speechbrain.nnet.linear.Linear
-   input_size: 2048
+   input_size: 1024
    n_neurons: !ref <output_neurons>
 
 log_softmax: !new:speechbrain.nnet.activations.Softmax
@@ -148,6 +230,15 @@ lr_annealing_weights: !new:speechbrain.nnet.schedulers.NewBobScheduler
    patient: 0
 
 label_encoder: !new:speechbrain.dataio.encoder.CTCTextEncoder
+
+pretrainer: !new:speechbrain.utils.parameter_transfer.Pretrainer
+   collect_in: !ref <save_folder>
+   loadables:
+      pt_model: !ref <pt_model>
+      normalize: !ref <normalize>
+   paths:
+      pt_model: !ref <ssl_hub>/model.ckpt
+      normalize: !ref <ssl_hub>/normalizer.ckpt
 
 checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
    checkpoints_dir: !ref <save_folder>

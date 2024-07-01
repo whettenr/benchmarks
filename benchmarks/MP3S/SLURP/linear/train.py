@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""
-Recipe for "direct" (speech -> scenario) "Intent" classification using SLURP Dataset.
+""" Recipe for "direct" (speech -> scenario) "Intent" classification using SLURP Dataset.
 18 Scenarios classes are present in SLURP (calendar, email ...)
 We encode input waveforms into features using a SSL encoder
 The probing is done using time-pooling followed with a linear classifier.
+
 Authors
+ * Adel Moumen 2024
  * Salah Zaiem 2023
  * Youcef Kemiche 2023
 """
@@ -22,7 +23,7 @@ class IntentIdBrain(sb.Brain):
         """
         batch = batch.to(self.device)
         wavs, lens = batch.sig
-        feats = self.modules.weighted_ssl_model(wavs)
+        feats = self.modules.weighted_ssl_model(wavs, lens)
         # last dim will be used for AdaptativeAVG pool
         outputs = self.hparams.avg_pool(feats, lens)
         outputs = outputs.view(outputs.shape[0], -1)
@@ -34,31 +35,12 @@ class IntentIdBrain(sb.Brain):
         """Computes the loss using speaker-id as label.
         """
         scenario_id, _ = batch.scenario_encoded
-
-        """to meet the input form of nll loss"""
+        # to meet the input form of nll loss
         scenario_id = scenario_id.squeeze(1)
-        print(scenario_id.shape)
-        print(predictions.shape)
         loss = self.hparams.compute_cost(predictions, scenario_id)
         if stage != sb.Stage.TRAIN:
             self.error_metrics.append(batch.id, predictions, scenario_id)
-
         return loss
-
-    def fit_batch(self, batch):
-        """Trains the parameters given a single batch in input"""
-
-        predictions = self.compute_forward(batch, sb.Stage.TRAIN)
-        loss = self.compute_objectives(predictions, batch, sb.Stage.TRAIN)
-        loss.backward()
-        if self.check_gradients(loss):
-            self.weights_optimizer.step()
-            self.model_optimizer.step()
-
-        self.weights_optimizer.zero_grad()
-        self.model_optimizer.zero_grad()
-
-        return loss.detach()
 
     def on_stage_start(self, stage, epoch=None):
         """Gets called at the beginning of each epoch.
@@ -148,7 +130,10 @@ class IntentIdBrain(sb.Brain):
         self.model_optimizer = self.hparams.model_opt_class(
             self.hparams.model.parameters()
         )
-
+        self.optimizers_dict = {
+            "model_optimizer": self.model_optimizer,
+            "weights_optimizer": self.weights_optimizer,
+        }
         if self.checkpointer is not None:
             self.checkpointer.add_recoverable("modelopt", self.model_optimizer)
             self.checkpointer.add_recoverable(
@@ -253,7 +238,6 @@ def dataio_prep(hparams):
     return {"train": datasets[0], "valid": datasets[1], "test": datasets[2]}
 
 
-# RECIPE BEGINS!
 if __name__ == "__main__":
 
     # Reading command line arguments.
@@ -298,6 +282,11 @@ if __name__ == "__main__":
         run_opts=run_opts,
         checkpointer=hparams["checkpointer"],
     )
+
+    # Load pretrained model
+    if "pretrainer" in hparams.keys():
+        run_on_main(hparams["pretrainer"].collect_files)
+        hparams["pretrainer"].load_collected()
 
     # The `fit()` method iterates the training loop, calling the methods
     # necessary to update the parameters of the model. Since all objects
