@@ -158,7 +158,7 @@ class ASR(sb.Brain):
             )
 
             self.hparams.train_logger.log_stats(
-                stats_meta={"epoch": epoch, "lr_model": old_lr_model},
+                stats_meta={"epoch": epoch, "lr_model": old_lr_model, "lr_weights": old_lr_weights},
                 train_stats=self.train_stats,
                 valid_stats=stage_stats,
             )
