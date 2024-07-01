@@ -77,7 +77,7 @@ class ASR(sb.Brain):
             self.cer_metric.append(ids, predicted_words, target_words)
 
         elif stage == sb.Stage.TEST:
-            if self.hparams.language_modelling:
+            if self.hparams.language_modeling:
                 predicted_words = []
                 for logs in p_ctc:
                     text = decoder.decode(logs.detach().cpu().numpy())
@@ -341,9 +341,9 @@ if __name__ == "__main__":
     # We dynamicaly add the tokenizer to our brain class.
     asr_brain.tokenizer = label_encoder
 
-    if "language_modelling" in hparams:
+    if "language_modeling" in hparams:
 
-        if hparams["language_modelling"]:
+        if hparams["language_modeling"]:
             from pyctcdecode import build_ctcdecoder
 
             ind2lab = label_encoder.ind2lab
@@ -360,7 +360,7 @@ if __name__ == "__main__":
                 beta=1.0,  # tuned on a val set
             )
     else:
-        hparams["language_modelling"] = False
+        hparams["language_modeling"] = False
 
     # Loading the SSL model
     if "pretrainer" in hparams.keys():
