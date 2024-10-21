@@ -250,7 +250,7 @@ if __name__ == "__main__":
         prepare_common_voice,
         kwargs={
             "data_folder": hparams["data_folder"],
-            "save_folder": hparams["save_folder"],
+            "save_folder": hparams["data_folder"],
             "train_tsv_file": hparams["train_tsv_file"],
             "dev_tsv_file": hparams["dev_tsv_file"],
             "test_tsv_file": hparams["test_tsv_file"],
