@@ -15,7 +15,7 @@ save_folder: !ref <output_folder>/save
 train_log: !ref <output_folder>/train_log.txt
 # Data files
 data_folder: !PLACEHOLDER  # e.g. /path/to/Voxceleb
-csv_location: /users/rwhetten/best-rq-test/results/VoxCeleb1/csv
+csv_location: /users/rwhetten/ICASSP_2024/best-rq-test/results/VoxCeleb1/csv
 train_annotation: !ref <csv_location>/train.csv
 valid_annotation: !ref <csv_location>/dev.csv
 num_layers_ssl: 13
@@ -133,19 +133,19 @@ wrapper: !new:speechbrain.lobes.models.transformer.TransformerASR.WeightedEncode
    num_layers: !ref <num_layers_ssl>
    freeze: !ref <freeze_encoder>
 
-Quantizer: !new:speechbrain.nnet.quantisers.RandomProjectionQuantizer
-    # projection
-    input_dim: !ref <p_input>
-    # codebook
-    cb_dim: !ref <cb_dim>    
-    cb_vocab: !ref <cb_vocab>
+# Quantizer: !new:speechbrain.nnet.quantisers.RandomProjectionQuantizer
+#     # projection
+#     input_dim: !ref <p_input>
+#     # codebook
+#     cb_dim: !ref <cb_dim>    
+#     cb_vocab: !ref <cb_vocab>
 
-linear: !new:speechbrain.nnet.linear.Linear
-    input_size: !ref <d_model>
-    n_neurons: !ref <cb_vocab>
+# linear: !new:speechbrain.nnet.linear.Linear
+#     input_size: !ref <d_model>
+#     n_neurons: !ref <cb_vocab>
 
 pt_model: !new:torch.nn.ModuleList
-    - [!ref <CNN>, !ref <wrapper>, !ref <Quantizer>, !ref <linear>]
+    - [!ref <CNN>, !ref <wrapper>,]
 
 weighted_ssl_model: !new:speechbrain.lobes.models.transformer.TransformerASR.ComputeFeaturesWrapper
    compute_features: !ref <compute_features>
@@ -218,9 +218,9 @@ checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
         classifier: !ref <classifier>
         counter: !ref <epoch_counter>
 
-train_data: /users/rwhetten/best-rq-test/results/VoxCeleb1/csv/train.csv
-enrol_data: /users/rwhetten/best-rq-test/results/VoxCeleb1/csv/enrol.csv
-test_data: /users/rwhetten/best-rq-test/results/VoxCeleb1/csv/test.csv
+train_data: /lustre/fsn1/projects/rech/nkp/uaj64gk/voxceleb/csv/train.csv
+enrol_data: /lustre/fsn1/projects/rech/nkp/uaj64gk/voxceleb/csv/enrol.csv
+test_data: /lustre/fsn1/projects/rech/nkp/uaj64gk/voxceleb/csv/test.csv
 
 verif_batch_size: 4
 n_train_snts: 300000 # used for normalization stats
