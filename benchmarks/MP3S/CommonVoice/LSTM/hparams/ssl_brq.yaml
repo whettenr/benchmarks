@@ -25,9 +25,9 @@ train_tsv_file: !ref <data_folder>/train.tsv  # Standard CommonVoice .tsv files
 dev_tsv_file: !ref <data_folder>/dev.tsv  # Standard CommonVoice .tsv files
 test_tsv_file: !ref <data_folder>/test.tsv  # Standard CommonVoice .tsv files
 accented_letters: True
-train_csv: !ref <save_folder>/train.csv
-valid_csv: !ref <save_folder>/dev.csv
-test_csv: !ref <save_folder>/test.csv
+train_csv: !ref <data_folder>/train.csv
+valid_csv: !ref <data_folder>/dev.csv
+test_csv: !ref <data_folder>/test.csv
 skip_prep: False # Skip data preparation
 
 avoid_if_longer_than: 10.0
